@@ -18,29 +18,32 @@ export default async function DashboardLayout({
   if (user) {
     const { data, error } = await supabase
       .from('profiles')
-      .select('full_name, role, permissions')
+      .select('*')
       .eq('id', user.id)
-      .single()
+      .maybeSingle()
     if (error) {
-      console.error('Error fetching profile in layout for user:', user.id, JSON.stringify(error, null, 2))
+      console.warn('Error fetching profile in layout for user:', user.id, error.message)
     }
-    if (data) {
-      profile = {
-        full_name: data.full_name || 'Usuario',
-        role: data.role || 'Administrador',
-        permissions: Array.isArray(data.permissions) ? data.permissions : undefined
-      }
+    const resolvedName = (data?.full_name && data.full_name.trim().length > 0)
+      ? data.full_name.trim()
+      : (user.user_metadata?.full_name || (user.email ? user.email.split('@')[0] : 'Usuario'))
+
+    profile = {
+      full_name: resolvedName,
+      role: data?.role || user.user_metadata?.role || 'Administrador',
+      permissions: Array.isArray(data?.permissions) ? data.permissions : undefined
     }
   }
 
   // Obtenemos las iniciales para el avatar de forma segura
   const safeName = profile.full_name || 'Usuario'
   const initials = safeName
-    .split(' ')
+    .trim()
+    .split(/\s+/)
     .map((n: string) => n[0])
     .join('')
     .substring(0, 2)
-    .toUpperCase()
+    .toUpperCase() || 'US'
 
   let storeSettings: { store_name: string; logo_url: string | null } = { store_name: 'AdonayMarket', logo_url: null }
   try {
