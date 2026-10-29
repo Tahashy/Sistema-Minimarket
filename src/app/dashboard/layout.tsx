@@ -42,6 +42,14 @@ export default async function DashboardLayout({
     .substring(0, 2)
     .toUpperCase()
 
+  let storeSettings: { store_name: string; logo_url: string | null } = { store_name: 'AdonayMarket', logo_url: null }
+  try {
+    const { data: stData } = await supabase.from('store_settings').select('store_name, logo_url').limit(1).maybeSingle()
+    if (stData?.store_name) storeSettings = stData
+  } catch (e) {
+    console.warn('Error fetching store_settings in layout', e)
+  }
+
   return (
     <div className="min-h-screen bg-[#f8f9fa] text-neutral-900 font-sans flex flex-col">
       {/* Top Navigation */}
@@ -51,18 +59,20 @@ export default async function DashboardLayout({
           {/* Logo y Menú */}
           <div className="flex items-center gap-10">
             <div className="flex items-center gap-3">
-              {/* AdonayMarket SVG Icon */}
-              <div className="bg-neutral-900 p-2 rounded-xl">
-                <svg width="24" height="24" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M30 45 L85 45 L78 70 L35 70 Z" fill="#4ade80" />
-                  <path d="M15 45 L30 45" stroke="#4ade80" strokeWidth="8" strokeLinecap="round" />
-                  <circle cx="45" cy="80" r="8" fill="#4ade80" />
-                  <circle cx="68" cy="80" r="8" fill="#4ade80" />
-                </svg>
-              </div>
-              <h1 className="text-xl font-bold tracking-tight">
-                <span className="text-white">Adonay</span>
-                <span className="text-emerald-500">Market</span>
+              {storeSettings.logo_url ? (
+                <img src={storeSettings.logo_url} alt="Logo" className="w-10 h-10 object-contain rounded-xl bg-white p-1 shadow-xs" />
+              ) : (
+                <div className="bg-neutral-900 p-2 rounded-xl">
+                  <svg width="24" height="24" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M30 45 L85 45 L78 70 L35 70 Z" fill="#4ade80" />
+                    <path d="M15 45 L30 45" stroke="#4ade80" strokeWidth="8" strokeLinecap="round" />
+                    <circle cx="45" cy="80" r="8" fill="#4ade80" />
+                    <circle cx="68" cy="80" r="8" fill="#4ade80" />
+                  </svg>
+                </div>
+              )}
+              <h1 className="text-xl font-bold tracking-tight text-white">
+                {storeSettings.store_name}
               </h1>
             </div>
 
