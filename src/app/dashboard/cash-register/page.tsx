@@ -47,6 +47,7 @@ export default function CashRegisterPage() {
   const [liveSummary, setLiveSummary] = useState<any>(null)
   const [showLiveAmounts, setShowLiveAmounts] = useState(true)
   const [configuredPaymentMethods, setConfiguredPaymentMethods] = useState<PaymentMethod[]>([])
+  const [showCloseModal, setShowCloseModal] = useState(false)
 
   // Helper para identificar si un método es considerado Efectivo físico en cajón
   const isCashMethod = (methodName: string, methodsList: PaymentMethod[] = configuredPaymentMethods) => {
@@ -218,13 +219,20 @@ export default function CashRegisterPage() {
   }
 
   // Cierre y Arqueo de Turno
-  const handleCloseRegister = async () => {
+  const handleOpenCloseModal = () => {
     const countedCash = parseFloat(closingCash)
     if (isNaN(countedCash) || countedCash < 0) {
       return showToast('⚠️ Ingresa cuánto dinero físico contaste en el cajón')
     }
+    setShowCloseModal(true)
+  }
 
-    if (!confirm('¿Estás seguro de finalizar el turno y cerrar la caja?')) return
+  const executeCloseRegister = async () => {
+    const countedCash = parseFloat(closingCash)
+    if (isNaN(countedCash) || countedCash < 0) {
+      setShowCloseModal(false)
+      return showToast('⚠️ Ingresa cuánto dinero físico contaste en el cajón')
+    }
 
     setIsLoading(true)
 
@@ -252,6 +260,7 @@ export default function CashRegisterPage() {
 
     if (closeError) {
       setIsLoading(false)
+      setShowCloseModal(false)
       return showToast('❌ Error al cerrar caja: ' + closeError.message)
     }
 
@@ -275,6 +284,7 @@ export default function CashRegisterPage() {
     setActiveRegister(null)
     setClosingCash('')
     setIsLoading(false)
+    setShowCloseModal(false)
     showToast('🏁 Turno finalizado y registrado')
     fetchLastClosedRegister()
   }
@@ -937,7 +947,7 @@ export default function CashRegisterPage() {
                 {/* Botón Confirmar Cierre */}
                 <button 
                   type="button"
-                  onClick={handleCloseRegister} 
+                  onClick={handleOpenCloseModal} 
                   disabled={isLoading}
                   className="w-full py-4 bg-neutral-900 hover:bg-neutral-800 text-white rounded-2xl font-bold text-base shadow-sm transition-all active:scale-95 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
                 >
@@ -1193,6 +1203,142 @@ export default function CashRegisterPage() {
                 className="px-5 py-2 bg-neutral-900 hover:bg-neutral-800 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
               >
                 Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================= MODAL PROFESIONAL DE CONFIRMACIÓN DE CIERRE DE CAJA ======================= */}
+      {showCloseModal && activeRegister && (
+        <div className="fixed inset-0 bg-neutral-950/60 backdrop-blur-sm z-[120] flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-neutral-200/90 flex flex-col">
+            
+            {/* Header del Modal */}
+            <div className="p-6 border-b border-neutral-100 flex items-start justify-between bg-neutral-50/70">
+              <div className="flex items-center gap-3.5">
+                <div className="w-11 h-11 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-600 flex items-center justify-center shrink-0">
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-neutral-900 font-serif">
+                    ¿Finalizar Turno de Caja?
+                  </h3>
+                  <p className="text-xs text-neutral-500 font-medium">
+                    Confirma los valores antes de realizar el arqueo
+                  </p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => !isLoading && setShowCloseModal(false)}
+                disabled={isLoading}
+                className="text-neutral-400 hover:text-neutral-800 p-1 rounded-lg transition-colors cursor-pointer disabled:opacity-40"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Contenido / Resumen Contable */}
+            <div className="p-6 space-y-4">
+              
+              {/* Tarjeta de Efectivo Declarado */}
+              <div className="bg-neutral-50 border border-neutral-200/80 rounded-2xl p-4 text-center">
+                <span className="text-[11px] font-bold text-neutral-500 uppercase tracking-wider block">
+                  Efectivo Físico Contado en Cajón
+                </span>
+                <p className="text-3xl font-black text-neutral-900 mt-1">
+                  S/ {parseFloat(closingCash || '0').toFixed(2)}
+                </p>
+                
+                {liveSummary && (
+                  <div className="mt-2.5 pt-2.5 border-t border-neutral-200/60 flex items-center justify-between text-xs">
+                    <span className="text-neutral-500 font-medium">Esperado según sistema:</span>
+                    <span className="font-bold text-neutral-800">S/ {liveSummary.expectedCash.toFixed(2)}</span>
+                  </div>
+                )}
+                
+                {liveSummary && (
+                  <div className="mt-1 flex items-center justify-between text-xs">
+                    <span className="text-neutral-500 font-medium">Diferencia proyectada:</span>
+                    {parseFloat(closingCash) === liveSummary.expectedCash ? (
+                      <span className="font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">✓ Exacto (S/ 0.00)</span>
+                    ) : parseFloat(closingCash) > liveSummary.expectedCash ? (
+                      <span className="font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">
+                        +S/ {(parseFloat(closingCash) - liveSummary.expectedCash).toFixed(2)} (Sobrante)
+                      </span>
+                    ) : (
+                      <span className="font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded-md">
+                        -S/ {Math.abs(parseFloat(closingCash) - liveSummary.expectedCash).toFixed(2)} (Faltante)
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Información adicional del turno */}
+              <div className="space-y-2 text-xs bg-neutral-50/60 p-3.5 rounded-2xl border border-neutral-100">
+                <div className="flex justify-between items-center text-neutral-600">
+                  <span>Cajero Responsable:</span>
+                  <span className="font-bold text-neutral-900">{activeRegister?.profiles?.full_name || currentUser?.email || 'Usuario'}</span>
+                </div>
+                <div className="flex justify-between items-center text-neutral-600">
+                  <span>Hora de apertura:</span>
+                  <span className="font-bold text-neutral-900">{formatDateTime(activeRegister?.opened_at)}</span>
+                </div>
+                <div className="flex justify-between items-center text-neutral-600">
+                  <span>Tiempo en turno:</span>
+                  <span className="font-bold text-neutral-900">{formatElapsedTime(activeRegister?.opened_at)}</span>
+                </div>
+              </div>
+
+              {/* Mensaje de aviso */}
+              <div className="p-3 bg-amber-50/60 border border-amber-200/60 rounded-xl text-[11px] text-amber-900 leading-relaxed flex items-start gap-2">
+                <svg className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>
+                  Al confirmar el cierre, la caja quedará bloqueada para nuevas ventas hasta su próxima apertura y se guardará el arqueo contable final.
+                </span>
+              </div>
+            </div>
+
+            {/* Acciones */}
+            <div className="p-4 border-t border-neutral-100 bg-neutral-50/70 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowCloseModal(false)}
+                disabled={isLoading}
+                className="px-4 py-2.5 rounded-xl border border-neutral-200 text-neutral-700 hover:bg-neutral-100 font-bold text-xs transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={executeCloseRegister}
+                disabled={isLoading}
+                className="px-5 py-2.5 bg-neutral-900 hover:bg-neutral-800 text-white rounded-xl font-bold text-xs shadow-sm transition-all cursor-pointer disabled:opacity-50 flex items-center gap-2"
+              >
+                {isLoading ? (
+                  <>
+                    <svg className="animate-spin w-4 h-4 text-white" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                    </svg>
+                    <span>Cerrando Caja...</span>
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>Sí, Confirmar Cierre</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
