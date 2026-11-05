@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { ALL_MODULES, ROLE_DEFAULT_PERMISSIONS } from '@/utils/settings'
+import { adminUpdateUserPassword } from '../actions'
 
 type UserProfile = {
   id: string
@@ -272,6 +273,19 @@ export default function UserManagement() {
         }
       } catch (authErr) {
         console.warn('Auth creation error:', authErr)
+      }
+    }
+
+    // Si se está editando un usuario existente y se ingresó una nueva contraseña
+    if (editingUser && password) {
+      try {
+        const passRes = await adminUpdateUserPassword(editingUser.id, password)
+        if (!passRes.success) {
+          console.warn('Admin password update note:', passRes.error)
+          showToast('ℹ️ ' + passRes.error)
+        }
+      } catch (passErr) {
+        console.warn('Password update error:', passErr)
       }
     }
 

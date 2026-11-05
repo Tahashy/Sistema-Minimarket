@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
+import { fetchAllProducts } from '@/utils/products'
 
 // Helper para formatear fechas sin desfase UTC
 function formatDate(dateStr?: string | null) {
@@ -90,9 +91,9 @@ export default function PurchasesPage() {
     const { data: supData } = await supabase.from('suppliers').select('*').order('business_name')
     if (supData) setSuppliers(supData)
 
-    // 2. Catálogo de Productos
-    const { data: prodData } = await supabase.from('products').select('*').order('name')
-    if (prodData) setProducts(prodData)
+    // 2. Catálogo de Productos (completo sin límite de 1000)
+    const prodData = await fetchAllProducts(supabase, '*', 'name')
+    if (prodData && prodData.length > 0) setProducts(prodData)
 
     // 3. Órdenes de compra con detalles
     const { data: orderData } = await supabase

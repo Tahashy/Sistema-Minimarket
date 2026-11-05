@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { useSearchParams } from 'next/navigation'
+import { fetchAllProducts } from '@/utils/products'
 
 // Componente para miniatura con fallback de iniciales
 function ProductThumbnail({ src, name }: { src?: string | null; name: string }) {
@@ -116,12 +117,9 @@ export default function InventoryPage() {
   }, [activeTab])
 
   const fetchData = async () => {
-    // 1. Productos
-    const { data: prodData } = await supabase
-      .from('products')
-      .select('*, categories(name)')
-      .order('name')
-    if (prodData) {
+    // 1. Productos (catálogo completo sin límite de 1000)
+    const prodData = await fetchAllProducts(supabase, '*, categories(name)', 'name')
+    if (prodData && prodData.length > 0) {
       const formatted = prodData.map(p => ({
         ...p,
         category: p.categories?.name || 'Sin Categoría'

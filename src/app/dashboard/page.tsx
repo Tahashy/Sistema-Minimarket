@@ -36,44 +36,71 @@ export default async function DashboardPage() {
   })
   const capitalizedDate = formattedDate.charAt(0).toUpperCase() + formattedDate.slice(1)
 
-  // 2. Consulta de Turno de Caja Activa
-  const { data: activeRegister } = await supabase
-    .from('cash_registers')
-    .select('id, opened_at, opening_balance, status')
-    .eq('status', 'Abierta')
-    .order('opened_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  // 3. Ventas de Hoy
-  const { data: todaySalesData } = await supabase
-    .from('sales')
-    .select('id, total, created_at, status')
-    .gte('created_at', todayISO)
-    .eq('status', 'Completada')
-
-  const todaySales = todaySalesData || []
-  const todayRevenue = todaySales.reduce((acc, s) => acc + Number(s.total || 0), 0)
-  const todayTransactions = todaySales.length
-  const todayAvgTicket = todayTransactions > 0 ? todayRevenue / todayTransactions : 0
-
-  // 4. Conteo Real de Stock Bajo
-  const { data: productsData } = await supabase
-    .from('products')
-    .select('id, name, stock, min_stock')
-
-  const lowStockCount = (productsData || []).filter(p => p.stock <= (p.min_stock ?? 10)).length
-
-  // 5. Ventas Reales de los Últimos 7 Días
+  // Consultas optimizadas en paralelo con Promise.all (reduce el tiempo de carga drásticamente)
   const sevenDaysAgo = new Date(now)
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6)
   sevenDaysAgo.setHours(0, 0, 0, 0)
 
-  const { data: weeklySalesData } = await supabase
-    .from('sales')
-    .select('total, created_at')
-    .gte('created_at', sevenDaysAgo.toISOString())
-    .eq('status', 'Completada')
+  const [
+    activeRegisterRes,
+    todaySalesRes,
+    productsRes,
+    weeklySalesRes,
+    saleItemsRes,
+    latestSalesRes
+  ] = await Promise.all([
+    supabase
+      .from('cash_registers')
+      .select('id, opened_at, opening_balance, status')
+      .eq('status', 'Abierta')
+      .order('opened_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from('sales')
+      .select('id, total, created_at, status')
+      .gte('created_at', todayISO)
+      .eq('status', 'Completada'),
+    supabase
+      .from('products')
+      .select('id, name, stock, min_stock'),
+    supabase
+      .from('sales')
+      .select('total, created_at')
+      .gte('created_at', sevenDaysAgo.toISOString())
+      .eq('status', 'Completada'),
+    supabase
+      .from('sale_items')
+      .select(`
+        quantity,
+        subtotal,
+        description,
+        products ( id, name )
+      `)
+      .order('created_at', { ascending: false })
+      .limit(250),
+    supabase
+      .from('sales')
+      .select(`
+        id,
+        document_type,
+        total,
+        created_at,
+        status,
+        customers ( full_name ),
+        sale_items ( id )
+      `)
+      .order('created_at', { ascending: false })
+      .limit(6)
+  ])
+
+  const activeRegister = activeRegisterRes.data
+  const todaySales = todaySalesRes.data || []
+  const todayRevenue = todaySales.reduce((acc, s) => acc + Number(s.total || 0), 0)
+  const todayTransactions = todaySales.length
+  const todayAvgTicket = todayTransactions > 0 ? todayRevenue / todayTransactions : 0
+
+  const lowStockCount = (productsRes.data || []).filter(p => p.stock <= (p.min_stock ?? 10)).length
 
   const daysOfWeek: { key: string; label: string; dateStr: string; total: number }[] = []
   for (let i = 6; i >= 0; i--) {
@@ -89,7 +116,7 @@ export default async function DashboardPage() {
     daysOfWeek.push({ key, label, dateStr, total: 0 })
   }
 
-  weeklySalesData?.forEach(s => {
+  weeklySalesRes.data?.forEach(s => {
     const sDate = s.created_at ? s.created_at.split('T')[0] : ''
     const dayItem = daysOfWeek.find(d => d.key === sDate)
     if (dayItem) {
@@ -99,20 +126,8 @@ export default async function DashboardPage() {
 
   const maxWeeklyTotal = Math.max(...daysOfWeek.map(d => d.total), 1)
 
-  // 6. Productos Más Vendidos Reales (Top 5)
-  const { data: saleItemsData } = await supabase
-    .from('sale_items')
-    .select(`
-      quantity,
-      subtotal,
-      description,
-      products ( id, name )
-    `)
-    .order('created_at', { ascending: false })
-    .limit(250)
-
   const productAgg: Record<string, { name: string; qty: number; revenue: number }> = {}
-  saleItemsData?.forEach(item => {
+  saleItemsRes.data?.forEach(item => {
     const pName = (item.products as any)?.name || item.description || 'Producto Libre'
     if (!productAgg[pName]) {
       productAgg[pName] = { name: pName, qty: 0, revenue: 0 }
@@ -125,22 +140,7 @@ export default async function DashboardPage() {
     .sort((a, b) => b.qty - a.qty)
     .slice(0, 5)
 
-  // 7. Últimas Ventas Reales
-  const { data: latestSalesData } = await supabase
-    .from('sales')
-    .select(`
-      id,
-      document_type,
-      total,
-      created_at,
-      status,
-      customers ( full_name ),
-      sale_items ( id )
-    `)
-    .order('created_at', { ascending: false })
-    .limit(6)
-
-  const latestSales = latestSalesData || []
+  const latestSales = latestSalesRes.data || []
 
   return (
     <div className="space-y-6">

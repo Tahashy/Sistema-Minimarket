@@ -52,12 +52,16 @@ export default function TopNav({ userRole = 'Administrador', initialPermissions 
 
   useEffect(() => {
     const fetchAlerts = async () => {
-      const supabase = createClient()
-      const { data } = await supabase.from('products').select('stock, min_stock')
-      if (data) {
-        const critical = data.filter(p => p.stock <= (p.min_stock || 20))
-        setAlertCount(critical.length)
-      }
+      try {
+        const supabase = createClient()
+        const { count } = await supabase
+          .from('products')
+          .select('*', { count: 'exact', head: true })
+          .lte('stock', 20)
+        if (typeof count === 'number') {
+          setAlertCount(count)
+        }
+      } catch {}
     }
     fetchAlerts()
     
@@ -170,12 +174,12 @@ export default function TopNav({ userRole = 'Administrador', initialPermissions 
   })
 
   return (
-    <nav className="flex items-center gap-2 lg:gap-5 overflow-x-auto no-scrollbar py-1 max-w-[850px]">
+    <nav className="hidden xl:flex items-center gap-5">
       {visibleNavItems.map(item => (
         <Link 
           key={item.id} 
           href={item.href} 
-          className={`flex items-center gap-1.5 border-b-2 pb-1 ${isActive(item.href) ? activeClass : inactiveClass}`}
+          className={`flex items-center gap-1.5 border-b-2 pb-1 whitespace-nowrap ${isActive(item.href) ? activeClass : inactiveClass}`}
         >
           {item.icon}
           {item.label}

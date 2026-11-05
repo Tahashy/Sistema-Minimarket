@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/utils/supabase/client'
+import { fetchAllProducts } from '@/utils/products'
 
 // Componente para Miniatura de Producto que maneja errores sin romper el diseño
 function ProductThumbnail({ src, name }: { src?: string | null; name: string }) {
@@ -124,12 +125,9 @@ export default function ProductsPage() {
     const { data: catData } = await supabase.from('categories').select('*').order('name')
     if (catData) setCategories(catData)
 
-    const { data: prodData } = await supabase
-      .from('products')
-      .select('*, categories(name)')
-      .order('created_at', { ascending: false })
+    const prodData = await fetchAllProducts(supabase, '*, categories(name)', 'created_at', false)
       
-    if (prodData) {
+    if (prodData && prodData.length > 0) {
       const formattedProd = prodData.map(p => ({
         ...p,
         category: p.categories?.name || 'Sin Categoría'

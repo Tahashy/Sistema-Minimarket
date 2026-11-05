@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import qz from 'qz-tray'
 import { getPaymentMethods, getStoreSettings, PaymentMethod, StoreSettings } from '@/utils/settings'
+import { fetchAllProducts } from '@/utils/products'
 
 function ProductImage({ src, name }: { src?: string | null; name: string }) {
   const [error, setError] = useState(false)
@@ -256,8 +257,8 @@ export default function PosPage() {
   }
 
   const fetchProducts = async () => {
-    const { data: prodData } = await supabase.from('products').select('*, categories(name)').order('name')
-    if (prodData) {
+    const prodData = await fetchAllProducts(supabase, '*, categories(name)', 'name')
+    if (prodData && prodData.length > 0) {
       const formatted = prodData.map(p => ({
         ...p,
         category: p.categories?.name || 'Sin Categoría',
@@ -296,15 +297,13 @@ export default function PosPage() {
 
   const addToCart = (product: any) => {
     if (product.stock <= 0) {
-      showToast(`El producto "${product.name}" está agotado.`)
-      return
+      showToast(`⚠️ Aviso: "${product.name}" figura con stock 0 en inventario.`)
     }
     
     const existing = cart.find(item => item.id === product.id)
     if (existing) {
-      if (existing.qty >= product.stock) {
+      if (product.stock > 0 && existing.qty >= product.stock) {
         showToast(`Solo quedan ${product.stock} unidades de "${product.name}".`)
-        return
       }
       updateQty(product.id, 1)
     } else {
@@ -390,19 +389,40 @@ export default function PosPage() {
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
-      const match = products.find(p => p.barcode === searchQuery || p.name.toLowerCase() === searchQuery.toLowerCase())
+      e.preventDefault()
+      const query = searchQuery.trim()
+      if (!query) return
+
+      const cleanQuery = query.toLowerCase()
+
+      // 1. Buscar coincidencia exacta por código de barras (prioridad 1 para escáner/pistola)
+      let match = products.find(p => {
+        if (!p.barcode) return false
+        const pBar = String(p.barcode).trim().toLowerCase()
+        return pBar === cleanQuery || pBar.replace(/^0+/, '') === cleanQuery.replace(/^0+/, '')
+      })
+
+      // 2. Si no coincide por código de barras, buscar coincidencia exacta por nombre
+      if (!match) {
+        match = products.find(p => p.name.trim().toLowerCase() === cleanQuery)
+      }
+
+      // 3. Si aún no hay match, pero los productos filtrados tienen exactamente 1 resultado
+      if (!match && filteredProducts.length === 1) {
+        match = filteredProducts[0]
+      }
+
+      // 4. Si aún no hay match, buscar si el código de barras contiene la búsqueda
+      if (!match) {
+        match = products.find(p => p.barcode && String(p.barcode).trim().includes(cleanQuery))
+      }
+
       if (match) {
         addToCart(match)
         setSearchQuery('')
-      } else if (filteredProducts.length === 1) {
-        addToCart(filteredProducts[0])
-        setSearchQuery('')
-      } else if (searchQuery.trim() !== '') {
-        // Si no se encuentra en el inventario, ofrecer agregarlo como producto libre
-        setCustomName(searchQuery.trim())
-        setCustomQty('1')
-        setCustomPrice('')
-        setShowCustomProductModal(true)
+      } else {
+        // En lugar de abrir Producto Libre de forma intrusiva, notificamos al cajero
+        showToast(`⚠️ No se encontró ningún producto con el código: "${query}"`)
         setSearchQuery('')
       }
     }
