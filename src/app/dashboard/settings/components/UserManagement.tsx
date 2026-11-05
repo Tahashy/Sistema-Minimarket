@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { ALL_MODULES } from '@/utils/settings'
+import { ALL_MODULES, ROLE_DEFAULT_PERMISSIONS } from '@/utils/settings'
 
 type UserProfile = {
   id: string
@@ -11,13 +11,6 @@ type UserProfile = {
   role: string
   status?: string
   permissions?: string[]
-}
-
-const ROLE_DEFAULT_PERMISSIONS: Record<string, string[]> = {
-  'Administrador': ['dashboard', 'pos', 'products', 'inventory', 'purchases', 'customers', 'cash-register', 'settings'],
-  'Cajero': ['pos', 'customers', 'cash-register'],
-  'Almacenero': ['products', 'inventory', 'purchases'],
-  'Personalizado': ['pos']
 }
 
 export default function UserManagement() {
@@ -53,18 +46,61 @@ export default function UserManagement() {
 
   const fetchUsers = async () => {
     setLoading(true)
+    let localPermsMap: Record<string, any> = {}
+    if (typeof window !== 'undefined') {
+      try {
+        const storedMap = localStorage.getItem('adonay_user_permissions_map')
+        if (storedMap) localPermsMap = JSON.parse(storedMap)
+      } catch {}
+    }
+
     try {
       const { data, error } = await supabase.from('profiles').select('*').order('full_name')
       if (!error && data && data.length > 0) {
-        const formatted = data.map(u => ({
-          ...u,
-          status: u.status || 'Activo',
-          permissions: Array.isArray(u.permissions) ? u.permissions : ROLE_DEFAULT_PERMISSIONS[u.role] || ROLE_DEFAULT_PERMISSIONS['Cajero']
-        }))
-        setUsers(formatted)
+        const formatted: UserProfile[] = data.map(u => {
+          const localMeta = localPermsMap[u.id] || (u.email ? localPermsMap[u.email.toLowerCase()] : null) || {}
+          const resolvedStatus = u.status || localMeta.status || 'Activo'
+          const resolvedRole = u.role || localMeta.role || 'Cajero'
+          const resolvedPermissions = (Array.isArray(u.permissions) && u.permissions.length > 0)
+            ? u.permissions
+            : ((Array.isArray(localMeta.permissions) && localMeta.permissions.length > 0)
+                ? localMeta.permissions
+                : (ROLE_DEFAULT_PERMISSIONS[resolvedRole] || ROLE_DEFAULT_PERMISSIONS['Cajero']))
+          const resolvedName = (u.full_name && u.full_name.trim()) 
+            ? u.full_name.trim() 
+            : (localMeta.full_name || (u.email ? u.email.split('@')[0] : 'Usuario'))
+
+          return {
+            id: u.id,
+            full_name: resolvedName,
+            email: u.email || null,
+            role: resolvedRole,
+            status: resolvedStatus,
+            permissions: resolvedPermissions
+          }
+        })
+
+        // Merge any user from local cache that might not have synchronized yet
         if (typeof window !== 'undefined') {
+          const cached = localStorage.getItem('adonay_profiles_cache')
+          if (cached) {
+            try {
+              const parsed = JSON.parse(cached)
+              if (Array.isArray(parsed)) {
+                const existingIds = new Set(formatted.map(x => x.id))
+                const existingEmails = new Set(formatted.map(x => x.email?.toLowerCase()).filter(Boolean))
+                for (const cu of parsed) {
+                  if (!existingIds.has(cu.id) && (!cu.email || !existingEmails.has(cu.email.toLowerCase()))) {
+                    formatted.push(cu)
+                  }
+                }
+              }
+            } catch {}
+          }
           localStorage.setItem('adonay_profiles_cache', JSON.stringify(formatted))
         }
+
+        setUsers(formatted)
         setLoading(false)
         return
       }
@@ -188,6 +224,7 @@ export default function UserManagement() {
     setIsSaving(true)
 
     let userId = editingUser ? editingUser.id : `usr-${Date.now()}`
+    let isExistingAuthUser = false
 
     // Si es un usuario nuevo, registrar en Supabase Auth mediante cliente aislado sin tocar la sesión del admin
     if (!editingUser && email && password) {
@@ -205,16 +242,30 @@ export default function UserManagement() {
           options: {
             data: {
               full_name: name,
-              role: formRole
+              role: formRole,
+              permissions: formPermissions,
+              status: formStatus
             }
           }
         })
 
         if (authError) {
           console.warn('Supabase Auth signUp note:', authError)
-          if (authError.message.includes('already registered')) {
-            setIsSaving(false)
-            return showToast('❌ Este correo electrónico ya está registrado en el sistema')
+          // Si el correo ya existe en auth, lo buscamos para vincular y no bloquear
+          if (authError.message.toLowerCase().includes('already') || authError.status === 422) {
+            isExistingAuthUser = true
+            // Consultar si ya existe en profiles
+            const { data: existingProf } = await supabase
+              .from('profiles')
+              .select('id, full_name, role')
+              .eq('email', email)
+              .maybeSingle()
+
+            if (existingProf?.id) {
+              userId = existingProf.id
+            }
+          } else {
+            showToast('⚠️ Nota de autenticación: ' + authError.message)
           }
         } else if (authData?.user?.id) {
           userId = authData.user.id
@@ -233,35 +284,93 @@ export default function UserManagement() {
       permissions: formPermissions
     }
 
-    // Guardar en Supabase profiles
+    // 1. Guardar en Supabase profiles con fallback seguro
     try {
-      if (editingUser) {
-        await supabase.from('profiles').update({
+      // Intentar primero con todas las columnas
+      let profileError: any = null
+      if (editingUser || isExistingAuthUser) {
+        const { error } = await supabase.from('profiles').update({
           full_name: payload.full_name,
           email: payload.email,
           role: payload.role,
           status: payload.status,
           permissions: payload.permissions
-        }).eq('id', editingUser.id)
+        }).eq('id', userId)
+        profileError = error
       } else {
-        await supabase.from('profiles').upsert([{
+        const { error } = await supabase.from('profiles').upsert([{
           id: payload.id,
           full_name: payload.full_name,
           email: payload.email,
           role: payload.role,
           status: payload.status,
           permissions: payload.permissions
-        }])
+        }], { onConflict: 'id' })
+        profileError = error
+      }
+
+      // Si falla por columna faltante (permissions / status no existen en la tabla profiles de BD)
+      if (profileError) {
+        console.warn('Fallback a campos base en profiles (sin columnas custom):', profileError.message)
+        const basePayload = {
+          id: payload.id,
+          full_name: payload.full_name,
+          email: payload.email,
+          role: payload.role
+        }
+
+        // Primero intentamos update, si no existe o falla hacemos upsert
+        const { error: updErr } = await supabase
+          .from('profiles')
+          .update(basePayload)
+          .eq('id', userId)
+
+        if (updErr) {
+          await supabase.from('profiles').upsert([basePayload], { onConflict: 'id' })
+        }
       }
     } catch (e) {
-      console.warn('Supabase profile save error, saving to local cache', e)
+      console.warn('Supabase profile save error, handled with local persistence', e)
     }
 
-    // Actualizar estado local
+    // 2. Persistir permisos y estado en el mapa local sincronizado (por ID y por Correo)
+    if (typeof window !== 'undefined') {
+      try {
+        const storedMap = localStorage.getItem('adonay_user_permissions_map')
+        const currentMap = storedMap ? JSON.parse(storedMap) : {}
+
+        const userMeta = {
+          id: userId,
+          email: email.toLowerCase(),
+          full_name: name,
+          role: formRole,
+          status: formStatus,
+          permissions: formPermissions,
+          updated_at: new Date().toISOString()
+        }
+
+        currentMap[userId] = userMeta
+        if (email) {
+          currentMap[email.toLowerCase()] = userMeta
+        }
+
+        localStorage.setItem('adonay_user_permissions_map', JSON.stringify(currentMap))
+
+        // Disparar sincronización para TopNav
+        localStorage.setItem('user_permissions', JSON.stringify(formPermissions))
+        window.dispatchEvent(new Event('pos_permissions_changed'))
+      } catch (e) {
+        console.error('Error saving local permissions map:', e)
+      }
+    }
+
+    // 3. Actualizar estado local de la lista de usuarios
     setUsers(prev => {
       let updated: UserProfile[]
-      if (editingUser) {
-        updated = prev.map(u => u.id === editingUser.id ? payload : u)
+      const existsIndex = prev.findIndex(u => u.id === userId || (email && u.email?.toLowerCase() === email.toLowerCase()))
+      if (existsIndex >= 0) {
+        updated = [...prev]
+        updated[existsIndex] = payload
       } else {
         updated = [...prev, payload]
       }
@@ -273,7 +382,11 @@ export default function UserManagement() {
 
     setIsSaving(false)
     setShowModal(false)
-    showToast(editingUser ? '✅ Usuario y permisos actualizados' : '✅ Usuario creado con su contraseña y permisos')
+    if (isExistingAuthUser) {
+      showToast('✅ Usuario vinculado y permisos actualizados correctamente')
+    } else {
+      showToast(editingUser ? '✅ Usuario y permisos actualizados' : '✅ Usuario creado con su contraseña y permisos')
+    }
   }
 
   const handleDelete = async (id: string) => {
@@ -281,6 +394,21 @@ export default function UserManagement() {
       await supabase.from('profiles').delete().eq('id', id)
     } catch (e) {
       console.warn('Supabase delete profile error', e)
+    }
+
+    // Limpiar también del mapa de permisos
+    if (typeof window !== 'undefined') {
+      try {
+        const storedMap = localStorage.getItem('adonay_user_permissions_map')
+        if (storedMap) {
+          const currentMap = JSON.parse(storedMap)
+          delete currentMap[id]
+          for (const key of Object.keys(currentMap)) {
+            if (currentMap[key]?.id === id) delete currentMap[key]
+          }
+          localStorage.setItem('adonay_user_permissions_map', JSON.stringify(currentMap))
+        }
+      } catch {}
     }
 
     setUsers(prev => {

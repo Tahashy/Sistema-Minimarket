@@ -1,6 +1,8 @@
 import { createClient } from '@/utils/supabase/server'
 import { logout } from './actions'
 import TopNav from './components/TopNav'
+import { ROLE_DEFAULT_PERMISSIONS } from '@/utils/settings'
+import { redirect } from 'next/navigation'
 
 export default async function DashboardLayout({
   children,
@@ -10,10 +12,11 @@ export default async function DashboardLayout({
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  let profile: { full_name: string; role: string; permissions?: string[] } = { 
+  let profile: { full_name: string; role: string; status?: string; permissions?: string[] } = { 
     full_name: 'Usuario', 
     role: 'Administrador',
-    permissions: ['dashboard', 'pos', 'products', 'inventory', 'purchases', 'customers', 'cash-register', 'settings']
+    status: 'Activo',
+    permissions: ROLE_DEFAULT_PERMISSIONS['Administrador']
   }
   if (user) {
     const { data, error } = await supabase
@@ -24,14 +27,29 @@ export default async function DashboardLayout({
     if (error) {
       console.warn('Error fetching profile in layout for user:', user.id, error.message)
     }
+
+    const resolvedStatus = data?.status || user.user_metadata?.status || 'Activo'
+    if (resolvedStatus === 'Inactivo') {
+      await supabase.auth.signOut()
+      redirect('/login?message=' + encodeURIComponent('Tu cuenta ha sido desactivada por el administrador.'))
+    }
+
+    const resolvedRole = data?.role || user.user_metadata?.role || 'Administrador'
     const resolvedName = (data?.full_name && data.full_name.trim().length > 0)
       ? data.full_name.trim()
       : (user.user_metadata?.full_name || (user.email ? user.email.split('@')[0] : 'Usuario'))
 
+    const resolvedPermissions = (Array.isArray(data?.permissions) && data.permissions.length > 0)
+      ? data.permissions
+      : ((Array.isArray(user.user_metadata?.permissions) && user.user_metadata.permissions.length > 0)
+          ? user.user_metadata.permissions
+          : (ROLE_DEFAULT_PERMISSIONS[resolvedRole] || ROLE_DEFAULT_PERMISSIONS['Cajero']))
+
     profile = {
       full_name: resolvedName,
-      role: data?.role || user.user_metadata?.role || 'Administrador',
-      permissions: Array.isArray(data?.permissions) ? data.permissions : undefined
+      role: resolvedRole,
+      status: resolvedStatus,
+      permissions: resolvedPermissions
     }
   }
 

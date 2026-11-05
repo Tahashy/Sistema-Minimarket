@@ -163,12 +163,14 @@ export default function TopNav({ userRole = 'Administrador', initialPermissions 
   // Filter items based on user role / low-code permission matrix
   const isSuperAdmin = userRole === 'Administrador' || userRole === 'Admin'
   const visibleNavItems = navItems.filter(item => {
-    if (isSuperAdmin) return true
+    if (isSuperAdmin && (!initialPermissions || initialPermissions.length >= navItems.length)) {
+      return true
+    }
     return permissions.includes(item.id)
   })
 
   return (
-    <nav className="hidden xl:flex items-center gap-5">
+    <nav className="flex items-center gap-2 lg:gap-5 overflow-x-auto no-scrollbar py-1 max-w-[850px]">
       {visibleNavItems.map(item => (
         <Link 
           key={item.id} 

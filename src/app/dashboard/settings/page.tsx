@@ -1,6 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import Link from 'next/link'
+import { createClient } from '@/utils/supabase/client'
+import { ROLE_DEFAULT_PERMISSIONS } from '@/utils/settings'
 import GeneralSettings from './components/GeneralSettings'
 import UserManagement from './components/UserManagement'
 import PaymentMethodsSettings from './components/PaymentMethodsSettings'
@@ -8,6 +11,58 @@ import PrinterSettings from './components/PrinterSettings'
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<'general' | 'users' | 'payments' | 'printer'>('general')
+  const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    const checkAccess = async () => {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        setIsAuthorized(true)
+        return
+      }
+
+      const { data: profile } = await supabase.from('profiles').select('role, permissions').eq('id', user.id).maybeSingle()
+      const role = profile?.role || user.user_metadata?.role || 'Administrador'
+      
+      let perms: string[] = []
+      if (Array.isArray(profile?.permissions) && profile.permissions.length > 0) {
+        perms = profile.permissions
+      } else if (Array.isArray(user.user_metadata?.permissions) && user.user_metadata.permissions.length > 0) {
+        perms = user.user_metadata.permissions
+      } else {
+        perms = ROLE_DEFAULT_PERMISSIONS[role] || ROLE_DEFAULT_PERMISSIONS['Cajero']
+      }
+
+      if (role === 'Administrador' || perms.includes('settings')) {
+        setIsAuthorized(true)
+      } else {
+        setIsAuthorized(false)
+      }
+    }
+
+    checkAccess()
+  }, [])
+
+  if (isAuthorized === false) {
+    return (
+      <div className="bg-white rounded-3xl p-12 text-center max-w-md mx-auto my-12 border border-neutral-200 shadow-sm animate-fade-in">
+        <div className="w-16 h-16 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-amber-200 text-3xl">
+          🔒
+        </div>
+        <h2 className="text-xl font-black text-neutral-900 mb-2">Acceso Restringido</h2>
+        <p className="text-neutral-500 text-sm mb-6">
+          Tu cuenta no tiene permisos para acceder al módulo de Configuración según la matriz de accesos asignada a tu rol.
+        </p>
+        <Link
+          href="/dashboard/pos"
+          className="inline-flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs sm:text-sm transition-all shadow-md shadow-emerald-200"
+        >
+          Ir a Punto de Venta
+        </Link>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">

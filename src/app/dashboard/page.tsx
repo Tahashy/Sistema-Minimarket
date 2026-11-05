@@ -1,8 +1,27 @@
 import { createClient } from '@/utils/supabase/server'
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
+import { ROLE_DEFAULT_PERMISSIONS } from '@/utils/settings'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
+
+  // Verificar permisos del usuario actual
+  const { data: { user } } = await supabase.auth.getUser()
+  if (user) {
+    const { data: profile } = await supabase.from('profiles').select('role, permissions').eq('id', user.id).maybeSingle()
+    const role = profile?.role || user.user_metadata?.role || 'Administrador'
+    const permissions: string[] = (Array.isArray(profile?.permissions) && profile.permissions.length > 0)
+      ? profile.permissions
+      : ((Array.isArray(user.user_metadata?.permissions) && user.user_metadata.permissions.length > 0)
+          ? user.user_metadata.permissions
+          : (ROLE_DEFAULT_PERMISSIONS[role] || ROLE_DEFAULT_PERMISSIONS['Cajero']))
+
+    if (role !== 'Administrador' && !permissions.includes('dashboard')) {
+      const firstAllowed = permissions.find(p => p !== 'dashboard') || 'pos'
+      redirect(`/dashboard/${firstAllowed}`)
+    }
+  }
 
   // 1. Fecha de hoy formateada en español
   const now = new Date()
