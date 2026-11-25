@@ -231,7 +231,9 @@ export default function PosPage() {
       // Right align for totals
       printData.push('\x1B\x61\x02') 
       printData.push(`SUBTOTAL: S/ ${sale.subtotal.toFixed(2)}\n`)
-      printData.push(`IGV (18%): S/ ${sale.igv.toFixed(2)}\n`)
+      if (sale.igv && sale.igv > 0) {
+        printData.push(`IGV (18%): S/ ${sale.igv.toFixed(2)}\n`)
+      }
       printData.push(`TOTAL: S/ ${sale.total.toFixed(2)}\n`)
       
       printData.push("--------------------------------\n")
@@ -271,8 +273,8 @@ export default function PosPage() {
   }
 
   const subtotal = cart.reduce((sum, item) => sum + (item.price * (Number(item.qty) || 0)), 0)
-  const igv = subtotal * 0.18
-  const total = Number((subtotal + igv).toFixed(2))
+  const igv = 0
+  const total = Number(subtotal.toFixed(2))
 
   const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0)
   const remaining = Number(Math.max(0, total - totalPaid).toFixed(2))
@@ -957,10 +959,6 @@ export default function PosPage() {
               <span className="text-neutral-500 font-medium">Subtotal</span>
               <span className="font-semibold text-neutral-800">S/ {subtotal.toFixed(2)}</span>
             </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-neutral-500 font-medium">IGV (18%)</span>
-              <span className="font-semibold text-neutral-800">S/ {igv.toFixed(2)}</span>
-            </div>
             <div className="flex justify-between text-lg pt-2 border-t border-neutral-100 border-dashed">
               <span className="font-black text-neutral-900">TOTAL</span>
               <span className="font-black text-emerald-600">S/ {total.toFixed(2)}</span>
@@ -1209,7 +1207,7 @@ export default function PosPage() {
 
                   <div className="space-y-1 text-xs text-right mt-3">
                     <p>SUBTOTAL: S/ {lastSale.subtotal.toFixed(2)}</p>
-                    <p>IGV (18%): S/ {lastSale.igv.toFixed(2)}</p>
+                    {lastSale.igv > 0 && <p>IGV (18%): S/ {lastSale.igv.toFixed(2)}</p>}
                     <p className="font-bold text-sm mt-1 border-t border-dashed border-neutral-400 pt-1">TOTAL: S/ {lastSale.total.toFixed(2)}</p>
                   </div>
 
